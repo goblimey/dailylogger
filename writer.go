@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/user"
 	"strings"
-	"syscall"
 
 	"sync"
 	"time"
@@ -173,7 +172,7 @@ func getLogFileDetails(args ...any) (os.FileMode, os.FileMode, string, string) {
 func SetFileUserAndGroup(filename, userName, groupName string) error {
 
 	if ps.OSName == "windows" {
-		return &fs.PathError{Op: "SetFileUserAndGroup", Path: filename, Err: syscall.EWINDOWS}
+		return &fs.PathError{Op: "SetFileUserAndGroup", Path: filename, Err: ps.EWINDOWS}
 	}
 
 	// We are not running under Windows, so Chown etc will work.
