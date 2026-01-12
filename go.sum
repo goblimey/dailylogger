@@ -4,6 +4,12 @@ github.com/goblimey/portablesyscall v0.0.0-20251231170308-3a08995b3aec h1:WmYXXt
 github.com/goblimey/portablesyscall v0.0.0-20251231170308-3a08995b3aec/go.mod h1:hTccOHTFt0SaGuheaALSpKpYJqHDEWD8D+GDKnFxojg=
 github.com/goblimey/portablesyscall v0.0.0-20260108200106-16aa39149f83 h1:M9qjaULlJTfRXs7Eo5DFlCheqszfu2FA5kT2j4Jwvrs=
 github.com/goblimey/portablesyscall v0.0.0-20260108200106-16aa39149f83/go.mod h1:hTccOHTFt0SaGuheaALSpKpYJqHDEWD8D+GDKnFxojg=
+github.com/goblimey/portablesyscall v0.0.0-20260109152402-5818fddeb7a3 h1:UEKyupgJpWt8DlSKd5nINn3yr4LUtglLFvXMHX2Mkrw=
+github.com/goblimey/portablesyscall v0.0.0-20260109152402-5818fddeb7a3/go.mod h1:hTccOHTFt0SaGuheaALSpKpYJqHDEWD8D+GDKnFxojg=
+github.com/goblimey/portablesyscall v0.0.0-20260109193504-310b6aebee71 h1:Ecv46ZoB6FrFvOlZHfA3AKB7OEckGI+Jp9rjrAp5DJ0=
+github.com/goblimey/portablesyscall v0.0.0-20260109193504-310b6aebee71/go.mod h1:hTccOHTFt0SaGuheaALSpKpYJqHDEWD8D+GDKnFxojg=
+github.com/goblimey/portablesyscall v0.0.0-20260111231805-0c68a3fd59ea h1:QUmPpayjEBvSuE1hetz5DdiPE7jSvrcIVjzV6QrqEhc=
+github.com/goblimey/portablesyscall v0.0.0-20260111231805-0c68a3fd59ea/go.mod h1:hTccOHTFt0SaGuheaALSpKpYJqHDEWD8D+GDKnFxojg=
 github.com/goblimey/switchwriter v0.0.0-20260103122352-d7a30a22828f h1:5ZBwgO4Wx3CB3UvHzmB2ClsOiMgHnHGJ+7Wh+rDonBU=
 github.com/goblimey/switchwriter v0.0.0-20260103122352-d7a30a22828f/go.mod h1:bSh5C5Ia+7kpqLq3SNHX9TVklUGElWk0VG6m/9et3H0=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

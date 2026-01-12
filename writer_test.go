@@ -45,7 +45,7 @@ func TestGetDurationToJustAfterMidnight(t *testing.T) {
 // right contents.
 func TestLogging(t *testing.T) {
 
-	// This test uses the filestore.  It creates a directory in /tmp containing
+	// This test uses the filestore.  It creates a temporary directory containing
 	// a plain file.  At the end it attempts to remove everything it created.
 
 	directoryName, err := CreateWorkingDirectory()
@@ -167,7 +167,7 @@ func TestRollover(t *testing.T) {
 	// Midnight at the start of the next day.
 	tomorrow := time.Date(2020, time.February, 15, 14, 35, 0, 0, locationParis)
 
-	writer := New(now, "", "foo.", ".bar")
+	writer := New(now, ".", "foo.", ".bar")
 
 	// This should write to wantFilename1.
 	n, err := writer.Write(buffer1)
@@ -327,9 +327,9 @@ func TestRolloverWithLongDelay(t *testing.T) {
 	writer.rotateLogs(nextMonth)
 
 	// This should write to wantLogFilename2.
-	n2, de2 := writer.Write([]byte(wantMessage2))
-	if de2 != nil {
-		t.Errorf("Write failed - %v", de2)
+	n2, de := writer.Write([]byte(wantMessage2))
+	if de != nil {
+		t.Errorf("Write failed - %v", de)
 	}
 
 	// Check.
@@ -370,41 +370,44 @@ func TestRolloverWithLongDelay(t *testing.T) {
 		return
 	}
 
-	fileInfo1, ie1 := fileList1[0].Info()
-	if ie1 != nil {
-		t.Error(ie1)
-	}
-
-	// Under Windows the permissions are ignored.
-	if ps.OSName != "windows" {
-		if fileInfo1.Mode() != wantLogDirPermissions {
-			t.Errorf("want permissions 0%o, got 0%o", wantLogDirPermissions, fileInfo1.Mode())
-			return
-		}
-	}
-
 	// Check that the two log files exist.
-	fileList2, de2 := os.ReadDir(fullPathnameLogDir)
-	if de2 != nil {
-		t.Errorf("error scanning directory %s - %v", testDirectoryName, de2)
+	dirList, de := os.ReadDir(fullPathnameLogDir)
+	if de != nil {
+		t.Errorf("error scanning directory %s - %v", testDirectoryName, de)
 		return
 	}
 
-	if len(fileList2) != 2 {
+	// There should be two files.
+	if len(dirList) != 2 {
 		t.Errorf("directory %s contains %d files.  Should contain just 2.",
-			testDirectoryName, len(fileList2))
+			testDirectoryName, len(dirList))
 		return
 	}
 
-	if fileList2[0].Name() != wantLogFilename1 ||
-		fileList2[1].Name() != wantLogFilename2 {
+	// Both files should be plain text.
+	dirEntry1 := dirList[0]
+	if !dirEntry1.Type().IsRegular() {
+		t.Errorf("want %s to be a plain file", dirEntry1.Name())
+	}
+	dirEntry2 := dirList[1]
+	if !dirEntry2.Type().IsRegular() {
+		t.Errorf("want %s to be a plain file", dirEntry2.Name())
+	}
 
-		t.Errorf("directory %s contains files \"%s\" and \"%s\", want \"%s\" or \"%s\".",
-			fullPathnameLogDir, fileList2[0].Name(), fileList2[1].Name(), wantLogFilename1, wantLogFilename2)
+	// Check the names of the files in the log directory.  Don't assume that they are in
+	// alphabetical order.
+	if !((dirEntry1.Name() == wantLogFilename1 &&
+		dirEntry2.Name() == wantLogFilename2) ||
+		(dirEntry1.Name() == wantLogFilename2 &&
+			dirEntry2.Name() == wantLogFilename1)) {
+
+		t.Errorf("want file %s and %s, got %s and %s",
+			wantLogFilename1, wantLogFilename2, dirEntry1.Name(), dirEntry2.Name())
 		return
 	}
 
-	// Check the contents of the two files.
+	// Check the contents of the two files.  Use the full path name, which adds another
+	// check.
 	wantPathName1 := fullPathnameLogDir + wantLogFilename1
 	inputFile1, oe1 := os.OpenFile(wantPathName1, os.O_RDONLY, 0644)
 	if oe1 != nil {
@@ -418,8 +421,8 @@ func TestRolloverWithLongDelay(t *testing.T) {
 		t.Errorf("error reading logfile %s back - %v", wantLogFilename1, re1)
 		return
 	}
-	if length1 != len(wantMessage1) {
-		t.Errorf("logfile contains %d bytes - want %d", length1, len(wantMessage1))
+	if length1 != len([]byte(wantMessage1)) {
+		t.Errorf("logfile contains %d bytes - want %d", length1, len([]byte(wantMessage1)))
 		return
 	}
 	result1 := string(b1[:length1])
@@ -452,38 +455,96 @@ func TestRolloverWithLongDelay(t *testing.T) {
 		return
 	}
 
-	// Under Linux, check the permissions and the ownership of the log files.
 	if ps.OSName != "windows" {
-		fileInfo3, ie3 := fileList2[1].Info()
+
+		// Under Linux, check the permissions of the log directory.
+
+		dirInfo, ie1 := fileList1[0].Info()
+		if ie1 != nil {
+			t.Error(ie1)
+		}
+
+		perms := dirInfo.Mode() & os.ModePerm
+		if perms != wantLogDirPermissions {
+			t.Errorf("want permissions 0%o, got 0%o", wantLogDirPermissions, perms)
+			return
+		}
+
+		// Check the permissions and the ownership of the log files.
+
+		logFileInfo1, ie3 := dirEntry1.Info()
 		if ie3 != nil {
 			t.Error(ie3)
 		}
-		if fileInfo3.Mode() != wantLogFilePermissions {
-			t.Errorf("want permissions 0%o, got 0%o", wantLogFilePermissions, fileInfo3.Mode())
+
+		// Check the permissions of the first file.
+		perms1 := logFileInfo1.Mode() & os.ModePerm
+		if perms1 != wantLogFilePermissions {
+			t.Errorf("want permissions 0%o, got 0%o", wantLogFilePermissions, perms1)
 			return
 		}
-		if ps.OSName != "windows" {
-			stat := fileInfo3.Sys().(*ps.Stat_t)
-			owner, ue := getUserFromID(stat.Uid)
-			if ue != nil {
-				t.Error(ue)
-			}
 
-			if owner.Name != wantLinuxUser {
-				t.Errorf("want %s got %s", wantLinuxUser, owner.Name)
-				return
-			}
+		stat1, e1 := ps.Stat(inputFile1)
+		if e1 != nil {
+			t.Error(e1)
+		}
 
-			ownerGroup, ge := getGroupFromID(stat.Uid)
-			if ge != nil {
-				t.Error(ge)
-				return
-			}
+		// Check the owner of the first log file.
+		owner1, ue := getUserFromID(stat1.Uid)
+		if ue != nil {
+			t.Error(ue)
+		}
 
-			if ownerGroup.Name != wantLinuxGroup {
-				t.Errorf("want %s got %s", wantLinuxGroup, ownerGroup.Name)
-				return
-			}
+		if owner1.Name != wantLinuxUser {
+			t.Errorf("want %s user got %s", wantLinuxUser, owner1.Name)
+			return
+		}
+
+		// Check the group of the first log file.
+		ownerGroup1, ge := getGroupFromID(stat1.Gid)
+		if ge != nil {
+			t.Error(ge)
+			return
+		}
+
+		if ownerGroup1.Name != wantLinuxGroup {
+			t.Errorf("want group %s got %s", wantLinuxGroup, ownerGroup1.Name)
+			return
+		}
+
+		logFileInfo2, ie3 := dirEntry2.Info()
+		if ie3 != nil {
+			t.Error(ie3)
+		}
+		perms2 := logFileInfo2.Mode() & os.ModePerm
+		if perms2 != wantLogFilePermissions {
+			t.Errorf("want permissions 0%o, got 0%o", wantLogFilePermissions, perms2)
+			return
+		}
+
+		stat2, e2 := ps.Stat(inputFile2)
+		if e2 != nil {
+			t.Error(e2)
+		}
+		owner2, ue := getUserFromID(stat2.Uid)
+		if ue != nil {
+			t.Error(ue)
+		}
+
+		if owner2.Name != wantLinuxUser {
+			t.Errorf("want user %s got %s", wantLinuxUser, owner2.Name)
+			return
+		}
+
+		ownerGroup2, ge := getGroupFromID(stat2.Gid)
+		if ge != nil {
+			t.Error(ge)
+			return
+		}
+
+		if ownerGroup2.Name != wantLinuxGroup {
+			t.Errorf("want group %s got %s", wantLinuxGroup, ownerGroup2.Name)
+			return
 		}
 	}
 }

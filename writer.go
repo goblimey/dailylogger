@@ -9,8 +9,8 @@ import (
 	"os"
 	"os/user"
 	"strings"
-
 	"sync"
+
 	"time"
 
 	ps "github.com/goblimey/portablesyscall"
@@ -83,7 +83,13 @@ func New(now time.Time, logDir, leader, trailer string, args ...any) *Writer {
 		trailer = defaultTrailer
 	}
 
-	dirPermissions, filePermissions, userName, groupName := getLogFileDetails(args...)
+	var dirPermissions, filePermissions os.FileMode
+	var userName, groupName string
+	if ps.OSName != "windows" {
+		// Get te log permissions and the log owner details.  These can only be set
+		// under a POSIX system.  Under Windows leave the at their zero values.
+		dirPermissions, filePermissions, userName, groupName = getLogFileDetails(args...)
+	}
 
 	dw := newWriter(now, logDir, leader, trailer, dirPermissions, filePermissions, userName, groupName)
 
@@ -172,10 +178,11 @@ func getLogFileDetails(args ...any) (os.FileMode, os.FileMode, string, string) {
 func SetFileUserAndGroup(filename, userName, groupName string) error {
 
 	if ps.OSName == "windows" {
+		// We are running under Windows, so Chown etc will not work.
 		return &fs.PathError{Op: "SetFileUserAndGroup", Path: filename, Err: ps.EWINDOWS}
 	}
 
-	// We are not running under Windows, so Chown etc will work.
+	// We are running on a POSIX system.  Chown etc will work.
 
 	if os.Getuid() != 0 {
 		return errors.New("SetFileUserAndGroup: must be root")
@@ -185,12 +192,12 @@ func SetFileUserAndGroup(filename, userName, groupName string) error {
 
 	uid, ue := getUserIDFromName(userName)
 	if ue != nil {
-		return ue
+		return errors.New(filename + " userName " + userName + " " + ue.Error())
 	}
 
 	gid, ge := getGroupIDFromName(groupName)
 	if ge != nil {
-		return ge
+		return errors.New(filename + " groupName " + groupName + " " + ge.Error())
 	}
 
 	che := os.Chown(filename, uid, gid)
@@ -265,7 +272,7 @@ func (dw *Writer) rotateLogs(now time.Time) {
 // CreateLogDirectory creates the log directory if it does not already exist.
 func createlogDirectory(directory, owner, group string, permissions os.FileMode) {
 	if uint32(permissions) == 0 {
-		// The given [permissons are zero (not set) so use ModePerm
+		// The given permissons are zero (not set) so use ModePerm
 		permissions = os.ModePerm
 	}
 
@@ -407,7 +414,7 @@ func getUserIDFromName(userName string) (int, error) {
 	}
 
 	var uid int
-	nu, uide := fmt.Sscanf("%d", u.Uid, &uid)
+	nu, uide := fmt.Sscanf(u.Uid, "%d", &uid)
 	if uide != nil {
 		return 0, uide
 	}
@@ -428,7 +435,7 @@ func getGroupIDFromName(groupName string) (int, error) {
 	}
 
 	var gid int
-	ng, gide := fmt.Sscanf("%d", g.Gid, &gid)
+	ng, gide := fmt.Sscanf(g.Gid, "%d", &gid)
 	if gide != nil {
 		return 0, gide
 	}
