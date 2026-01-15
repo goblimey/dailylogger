@@ -436,13 +436,8 @@ func TestRolloverWithLongDelay(t *testing.T) {
 
 	// Test.
 	var writer *Writer
-	if ps.OSName == "windows" {
-		writer = New(now, wantLogDir, "foo.", ".bar",
-			wantLogDirPermissions, wantLogFilePermissions)
-	} else {
-		writer = New(now, wantLogDir, "foo.", ".bar",
-			wantLogDirPermissions, wantLogFilePermissions, wantLinuxUser, wantLinuxGroup)
-	}
+	writer = New(now, wantLogDir, "foo.", ".bar",
+		wantLinuxUser, wantLinuxGroup, wantLogDirPermissions, wantLogFilePermissions)
 
 	// Write to the log for the 14th.
 	n1, re1 := writer.Write([]byte(wantMessage1))
