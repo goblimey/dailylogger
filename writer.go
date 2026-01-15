@@ -55,7 +55,7 @@ var _ io.Writer = (*Writer)(nil)
 // leader + YYYY-MM-DD + trailer, for example "payments.2026-02-14.log".  If the log file already
 // exists, it's opened in append mode.  If the program continues to write beyond midnight, a new
 // log file is created with a name refecting the new date.  The optional arguments are log directory
-// permissions(uint32), log file permissions (uint32), user name and group name of the files.  If
+// permissions(os.FileMode), log file permissions (os.FileMode), user name and group name of the files.  If
 // a permissions value is zero, the permissions are left as they are, they are NOT set to zero.  The
 // optional arguments are only useful if the calling process is running under a POSIX system (not
 // MS Windows) and is able to change the state of the file, for example, the caller is running as
@@ -66,6 +66,9 @@ var _ io.Writer = (*Writer)(nil)
 // or
 //
 //	New(time, logDirectory, leader, trailer, owner, group, directoryPerissions, filePermissions)
+//
+// Note: the os.FileMode type is a uint32 but the object supplied MUST be an os.FileMode type.
+// Any other int type will be interpreted as zero.
 func New(now time.Time, logDir, leader, trailer string, args ...any) *Writer {
 
 	// The logfile is of the form "logDir/leader.yyyy-mm-dd.trailer".  The default
@@ -89,8 +92,9 @@ func New(now time.Time, logDir, leader, trailer string, args ...any) *Writer {
 		trailer = defaultTrailer
 	}
 
-	// Get the log permissions and the log owner details.  These can only be set
-	// under a POSIX system.  Under Windows leave the at their zero values.
+	// Get the log permissions, the log owner and group.  The owner and group can only be
+	// set under a POSIX system and while running as root.  Under Windows the user and
+	// group are ignored.
 	dirPermissions, filePermissions, userName, groupName := getLogFileDetails(args...)
 
 	// Create the writer.
@@ -159,14 +163,14 @@ func getLogFileDetails(args ...any) (string, string, os.FileMode, os.FileMode) {
 	}
 
 	if len(args) >= 3 {
-		u, ok := args[2].(int)
+		u, ok := args[2].(os.FileMode)
 		if ok {
 			dirPermissions = os.FileMode(u)
 		}
 	}
 
 	if len(args) >= 4 {
-		u, ok := args[3].(int)
+		u, ok := args[3].(os.FileMode)
 		if ok {
 			filePermissions = os.FileMode(u)
 		}
@@ -337,15 +341,24 @@ func (dw *Writer) getLogPathname(now time.Time) string {
 // openFile either creates and opens the file or, if it already exists, opens it
 // in append mode.
 func (dw *Writer) openFile(name string) (*os.File, error) {
+
+	fn := "openFile"
+
 	// Open the file for appending, creating it if necessary.
 	file, oe := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if oe != nil {
-		log.Printf("openFile: %v", oe)
+		log.Printf("%s: %v\n", fn, oe)
 	}
 
 	if dw.logFilePermissions != 0 {
-		// Set the file permissions.
-		os.Chmod(name, os.FileMode(dw.logFilePermissions))
+		// Under Linux, set the file permissions.
+		if ps.OSName != "windows" {
+			err := os.Chmod(name, os.FileMode(dw.logFilePermissions))
+			if err != nil {
+				log.Printf("%s: %v\n", fn, err)
+				return nil, err
+			}
+		}
 	}
 
 	if len(dw.userName) > 0 && len(dw.groupName) > 0 {

@@ -81,7 +81,7 @@ func TestLogging(t *testing.T) {
 	now := time.Date(2020, time.February, 14, 1, 2, 3, 4, locationParis)
 
 	// Test.
-	writer := New(now, logDirPathName, leader, trailer, userName, group, "0700", "0600")
+	writer := New(now, logDirPathName, leader, trailer, userName, group, wantDirPermissions, wantFilePermissions)
 
 	n, err := writer.Write(buffer)
 	if err != nil {
@@ -210,7 +210,7 @@ func TestLogging(t *testing.T) {
 		// Check the directory permissions.
 		dirPermissions := os.FileMode(dStat.Mode) & os.ModePerm
 		if dirPermissions != wantDirPermissions {
-			t.Errorf("want o%o got o%o", wantFilePermissions, dirPermissions)
+			t.Errorf("want 0%o got 0%o", wantFilePermissions, dirPermissions)
 			return
 		}
 
