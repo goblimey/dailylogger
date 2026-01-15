@@ -410,8 +410,8 @@ func TestRolloverWithLongDelay(t *testing.T) {
 	// buffer2 := []byte(wantMessage)
 	const wantLogFilename1 = "foo.2020-02-14.bar"
 	const wantLogFilename2 = "foo.2020-03-15.bar"
-	const wantLogDirPermissions = 0700
-	const wantLogFilePermissions = 0600
+	const wantLogDirPermissions = os.FileMode(0700)
+	const wantLogFilePermissions = os.FileMode(0600)
 	const wantLinuxUser = "bin"     // This user exists under our target system Linux.
 	const wantLinuxGroup = "daemon" // This group exists under our target system Linux.
 
