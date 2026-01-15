@@ -1,7 +1,9 @@
 package dailylogger
 
 import (
+	"fmt"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -48,22 +50,39 @@ func TestLogging(t *testing.T) {
 	// This test uses the filestore.  It creates a temporary directory containing
 	// a plain file.  At the end it attempts to remove everything it created.
 
-	directoryName, err := CreateWorkingDirectory()
+	testDirectoryName, err := CreateWorkingDirectory()
 	if err != nil {
 		t.Errorf("createWorkingDirectory failed - %v", err)
 		return
 	}
-	defer RemoveWorkingDirectory(directoryName)
+	defer RemoveWorkingDirectory(testDirectoryName)
+
+	// Under a POSIX system, must be root to run this test.
+	if ps.OSName != "windows" && syscall.Getuid() != 0 {
+		// Not root - fail.
+		t.Error("must be root to run this test")
+		return
+	}
+
+	const wantLogDirBaseName = "dir"
+	const logDirPathName = "./" + wantLogDirBaseName
+	const leader = "foo."
+	const trailer = ".bar"
+	const wantLogFileName = "foo.2020-02-14.bar"
+	const logFilePathName = wantLogDirBaseName + "/" + wantLogFileName
+	const userName = "bin"
+	const group = "daemon"
+	const wantContents = "hello world"
+	const wantDirPermissions os.FileMode = 0700
+	const wantFilePermissions os.FileMode = 0600
+	buffer := []byte(wantContents)
 
 	locationParis, _ := time.LoadLocation("Europe/Paris")
-	givenTime := time.Date(2020, time.February, 14, 1, 2, 3, 4, locationParis)
-	writer := New(givenTime, ".", "", "")
-
-	wantFilename := "daily.2020-02-14.log"
-	wantMessage := "hello world"
-	buffer := []byte(wantMessage)
+	now := time.Date(2020, time.February, 14, 1, 2, 3, 4, locationParis)
 
 	// Test.
+	writer := New(now, logDirPathName, leader, trailer, userName, group, "0700", "0600")
+
 	n, err := writer.Write(buffer)
 	if err != nil {
 		t.Errorf("Write failed - %v", err)
@@ -72,30 +91,62 @@ func TestLogging(t *testing.T) {
 
 	// Check.
 
+	// Check the return from write.
 	if n != len(buffer) {
 		t.Errorf("Write returned %d - want %d", n, len(buffer))
 	}
 
-	// Check that one log file was created and contains the want contents.
-	files, err := os.ReadDir(directoryName)
-	if err != nil {
-		t.Errorf("error scanning directory %s - %s", directoryName, err.Error())
+	// Check that the test directory contains one file, a directory with the given name..
+	filesInTestDirectory, tde := os.ReadDir(testDirectoryName)
+	if tde != nil {
+		t.Errorf("error scanning directory %s - %v", testDirectoryName, tde)
 		return
 	}
 
+	if len(filesInTestDirectory) != 1 {
+		t.Errorf("want 1 file got %d", len(filesInTestDirectory))
+		return
+	}
+
+	// Check that the file is a directory
+	dirInfo := filesInTestDirectory[0]
+	if !dirInfo.IsDir() {
+		t.Error("want a directory")
+		return
+	}
+
+	// Check the log directory name
+	if dirInfo.Name() != wantLogDirBaseName {
+		t.Errorf("want directory %s got %s", wantLogDirBaseName, dirInfo.Name())
+		return
+	}
+
+	// Scan the log directory.
+	files, fe := os.ReadDir(logDirPathName)
+	if fe != nil {
+		t.Errorf("error scanning directory %s - %v", testDirectoryName, fe)
+		return
+	}
+
+	// Check that one log file was created and contains the wanted contents.
 	if len(files) != 1 {
-		t.Errorf("directory %s contains %d files.  Should contain exactly one.", directoryName, len(files))
+		t.Errorf("directory %s contains %d files.  Should contain exactly one.", testDirectoryName, len(files))
 		return
 	}
 
-	if files[0].Name() != wantFilename {
-		t.Errorf("directory %s contains file \"%s\", want \"%s\".", directoryName, files[0].Name(), wantFilename)
+	if files[0].Name() != wantLogFileName {
+		t.Errorf("directory %s contains file \"%s\", want \"%s\".", testDirectoryName, files[0].Name(), wantLogFileName)
 		return
 	}
 
 	// Check the contents.
-	inputFile, err := os.OpenFile(wantFilename, os.O_RDONLY, 0644)
+	inputFile, err := os.OpenFile(logFilePathName, os.O_RDONLY, 0644)
+	if err != nil {
+		t.Error(err)
+		return
+	}
 	defer inputFile.Close()
+
 	b := make([]byte, 8096)
 	length, err := inputFile.Read(b)
 	if err != nil {
@@ -109,9 +160,85 @@ func TestLogging(t *testing.T) {
 
 	contents := string(b[:length])
 
-	if wantMessage != contents {
-		t.Errorf("logfile contains \"%s\" - want \"%s\"", contents, wantMessage)
+	if wantContents != contents {
+		t.Errorf("logfile contains \"%s\" - want \"%s\"", contents, wantContents)
 		return
+	}
+
+	// The rest of the test only works on a Posix system.  On a Windows system, New creates
+	// the directory and the logfile but it cannot set permissions, user or group.
+	if ps.OSName != "windows" {
+		// On a POSIX system, check the owner, permissions etc of the files.
+
+		wantUserID, uide := getUserIDFromName(userName)
+		if uide != nil {
+			t.Error(uide)
+			return
+		}
+		fmt.Printf("user ID %d\n", wantUserID)
+
+		wantGroupID, gide := getGroupIDFromName(group)
+		if gide != nil {
+			t.Error(gide)
+			return
+		}
+		fmt.Printf("group ID %d\n", wantGroupID)
+
+		// The log directory.
+		d, de := os.Open(logDirPathName)
+		if de != nil {
+			t.Error(de)
+			return
+		}
+		dStat, dStatErr := ps.Stat(d)
+		if dStatErr != nil {
+			t.Error(dStatErr)
+		}
+
+		// Chec the user that owns the directory.
+		if int(dStat.Uid) != wantUserID {
+			t.Errorf("want %d got %d", wantUserID, dStat.Uid)
+			return
+		}
+
+		// Check the group that the directory is in.
+		if int(dStat.Gid) != wantGroupID {
+			t.Errorf("want %d got %d", wantGroupID, dStat.Gid)
+			return
+		}
+
+		// Check the directory permissions.
+		dirPermissions := os.FileMode(dStat.Mode) & os.ModePerm
+		if dirPermissions != wantDirPermissions {
+			t.Errorf("want o%o got o%o", wantFilePermissions, dirPermissions)
+			return
+		}
+
+		// The log file.
+		fStat, fStatErr := ps.Stat(inputFile)
+		if fStatErr != nil {
+			t.Error(fStatErr)
+			return
+		}
+
+		// Check the owner of the log file.
+		if int(fStat.Uid) != wantUserID {
+			t.Errorf("want %d got %d", wantUserID, dStat.Uid)
+			return
+		}
+
+		// Check the group that the file is in.
+		if int(fStat.Gid) != wantGroupID {
+			t.Errorf("want %d got %d", wantGroupID, fStat.Gid)
+			return
+		}
+
+		// Check the log file permissions.
+		filePermissions := os.FileMode(fStat.Mode) & os.ModePerm
+		if filePermissions != wantFilePermissions {
+			t.Errorf("want o%o got o%o", wantFilePermissions, filePermissions)
+			return
+		}
 	}
 }
 
@@ -679,7 +806,7 @@ func CreateWorkingDirectory() (string, error) {
 		return "", ue
 	}
 	// Create a directory of that name in the system's temp space.  Under UNIX, that's
-	// "/tmp", under Windows it's something else (possibly "c:/temp").
+	// "/tmp", under Windows it's something else.
 	directoryName, mde := os.MkdirTemp("", name)
 	if mde != nil {
 		return "", mde

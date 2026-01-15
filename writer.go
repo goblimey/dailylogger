@@ -59,7 +59,13 @@ var _ io.Writer = (*Writer)(nil)
 // a permissions value is zero, the permissions are left as they are, they are NOT set to zero.  The
 // optional arguments are only useful if the calling process is running under a POSIX system (not
 // MS Windows) and is able to change the state of the file, for example, the caller is running as
-// root or as the user that owns the files.
+// root or as the user that owns the files.  Typical calls are:
+//
+//	New(time, logDirectory, leader, trailer)
+//
+// or
+//
+//	New(time, logDirectory, leader, trailer, owner, group, directoryPerissions, filePermissions)
 func New(now time.Time, logDir, leader, trailer string, args ...any) *Writer {
 
 	// The logfile is of the form "logDir/leader.yyyy-mm-dd.trailer".  The default
@@ -83,14 +89,11 @@ func New(now time.Time, logDir, leader, trailer string, args ...any) *Writer {
 		trailer = defaultTrailer
 	}
 
-	var dirPermissions, filePermissions os.FileMode
-	var userName, groupName string
-	if ps.OSName != "windows" {
-		// Get te log permissions and the log owner details.  These can only be set
-		// under a POSIX system.  Under Windows leave the at their zero values.
-		dirPermissions, filePermissions, userName, groupName = getLogFileDetails(args...)
-	}
+	// Get the log permissions and the log owner details.  These can only be set
+	// under a POSIX system.  Under Windows leave the at their zero values.
+	dirPermissions, filePermissions, userName, groupName := getLogFileDetails(args...)
 
+	// Create the writer.
 	dw := newWriter(now, logDir, leader, trailer, dirPermissions, filePermissions, userName, groupName)
 
 	// Start a goroutine to roll the log over at the end of each day.
@@ -101,7 +104,8 @@ func New(now time.Time, logDir, leader, trailer string, args ...any) *Writer {
 // newWriter creates a daily writer with a supplied switchwriter
 // and returns a pointer to it. This is called by New as a helper method and by
 // unit tests.
-func newWriter(now time.Time, logDir, leader, trailer string, dirPermissions, filePermissions os.FileMode, userName, groupName string) *Writer {
+func newWriter(now time.Time, logDir, leader, trailer, userName, groupName string,
+	dirPermissions, filePermissions os.FileMode) *Writer {
 
 	startOfToday := getLastMidnight(now)
 
@@ -130,45 +134,45 @@ func newWriter(now time.Time, logDir, leader, trailer string, dirPermissions, fi
 }
 
 // getLogFileDetails gets the permissions, user name and group name from the optional arguments.
-func getLogFileDetails(args ...any) (os.FileMode, os.FileMode, string, string) {
-	// Args should be of length 0 to 4.  They are: log directory permissions(uint32) for example
-	// 0777, log file permissions (uint32), user name and group name of the files.
+func getLogFileDetails(args ...any) (string, string, os.FileMode, os.FileMode) {
+	// Args should be of length 0 to 4.  They are: user name and group name of the files, log
+	// directory permissions(uint32), log file permissions.
 
 	if len(args) <= 0 {
-		return 0, 0, "", ""
+		return "", "", 0, 0
 	}
 
-	var dirPermissions, filePermissions os.FileMode
 	var userName, groupName string
+	var dirPermissions, filePermissions os.FileMode
 
 	if len(args) >= 1 {
-		u, ok := args[0].(int)
-		if ok {
-			dirPermissions = os.FileMode(u)
-		}
-	}
-
-	if len(args) >= 2 {
-		u, ok := args[1].(int)
-		if ok {
-			filePermissions = os.FileMode(u)
-		}
-	}
-
-	if len(args) >= 3 {
-		s, ok := args[2].(string)
+		s, ok := args[0].(string)
 		if ok {
 			userName = strings.TrimSpace(s)
 		}
 	}
-	if len(args) >= 4 {
-		s, ok := args[3].(string)
+	if len(args) >= 2 {
+		s, ok := args[1].(string)
 		if ok {
 			groupName = strings.TrimSpace(s)
 		}
 	}
 
-	return dirPermissions, filePermissions, userName, groupName
+	if len(args) >= 3 {
+		u, ok := args[2].(int)
+		if ok {
+			dirPermissions = os.FileMode(u)
+		}
+	}
+
+	if len(args) >= 4 {
+		u, ok := args[3].(int)
+		if ok {
+			filePermissions = os.FileMode(u)
+		}
+	}
+
+	return userName, groupName, dirPermissions, filePermissions
 }
 
 // SetFileUserAndGroup sets the owner and group of a file (plain text or directory) to the
@@ -408,6 +412,7 @@ func getNextMidnight(givenTime time.Time) time.Time {
 // Under Windows it returns an error.
 func getUserIDFromName(userName string) (int, error) {
 
+	f := "getUserIDFromName"
 	u, ue := user.Lookup(userName)
 	if ue != nil {
 		return 0, ue
@@ -419,7 +424,7 @@ func getUserIDFromName(userName string) (int, error) {
 		return 0, uide
 	}
 	if nu != 1 {
-		em := fmt.Sprintf("%s: want 1 scanned uid, got %d", "SetFileUserAndGroup", nu)
+		em := fmt.Sprintf("%s: want 1 scanned uid, got %d", f, nu)
 		return 0, errors.New(em)
 	}
 
@@ -429,6 +434,9 @@ func getUserIDFromName(userName string) (int, error) {
 // getGroupIDFromName gets the group ID, given the group name.  This only works on a POSIX system.
 // Under Windows it returns an error.
 func getGroupIDFromName(groupName string) (int, error) {
+
+	f := "getGroupIDFromName"
+
 	g, ge := user.LookupGroup(groupName)
 	if ge != nil {
 		return 0, ge
@@ -440,7 +448,7 @@ func getGroupIDFromName(groupName string) (int, error) {
 		return 0, gide
 	}
 	if ng != 1 {
-		em := fmt.Sprintf("%s: want 1 scanned uid, got %d", "SetFileUserAndGroup", ng)
+		em := fmt.Sprintf("%s: want 1 scanned uid, got %d", f, ng)
 		return 0, errors.New(em)
 	}
 
