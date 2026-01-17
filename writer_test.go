@@ -1,7 +1,6 @@
 package dailylogger
 
 import (
-	"fmt"
 	"os"
 	"syscall"
 	"testing"
@@ -175,14 +174,12 @@ func TestLogging(t *testing.T) {
 			t.Error(uide)
 			return
 		}
-		fmt.Printf("user ID %d\n", wantUserID)
 
 		wantGroupID, gide := getGroupIDFromName(group)
 		if gide != nil {
 			t.Error(gide)
 			return
 		}
-		fmt.Printf("group ID %d\n", wantGroupID)
 
 		// The log directory.
 		d, de := os.Open(logDirPathName)
@@ -215,6 +212,184 @@ func TestLogging(t *testing.T) {
 		}
 
 		// The log file.
+		fStat, fStatErr := ps.Stat(inputFile)
+		if fStatErr != nil {
+			t.Error(fStatErr)
+			return
+		}
+
+		// Check the owner of the log file.
+		if int(fStat.Uid) != wantUserID {
+			t.Errorf("want %d got %d", wantUserID, dStat.Uid)
+			return
+		}
+
+		// Check the group that the file is in.
+		if int(fStat.Gid) != wantGroupID {
+			t.Errorf("want %d got %d", wantGroupID, fStat.Gid)
+			return
+		}
+
+		// Check the log file permissions.
+		filePermissions := os.FileMode(fStat.Mode) & os.ModePerm
+		if filePermissions != wantFilePermissions {
+			t.Errorf("want o%o got o%o", wantFilePermissions, filePermissions)
+			return
+		}
+	}
+}
+
+// TestNewWriterWithExistingFiles checks that NewWriter picks up an existing logging directory
+// with a log file for today and changes owner and permissions if necessary.  Some of the
+// features under test only work in a POSIX system such as Linux and when runing a root.
+func TestNewWriterWithExistingFiles(t *testing.T) {
+
+	// This test uses the filestore.  It creates a temporary directory containing
+	// a plain file.  At the end it attempts to remove everything it created.
+
+	testDirectoryName, err := CreateWorkingDirectory()
+	if err != nil {
+		t.Errorf("createWorkingDirectory failed - %v", err)
+		return
+	}
+	defer RemoveWorkingDirectory(testDirectoryName)
+
+	const wantLogDirBaseName = "logs"
+	const logDirPathName = "./" + wantLogDirBaseName
+	const leader = "foo."
+	const trailer = ".bar"
+	const wantLogFileName = "foo.2020-02-14.bar"
+	const logFilePathName = wantLogDirBaseName + "/" + wantLogFileName
+	const owner = "bin"
+	const group = "daemon"
+	const wantDirPermissions os.FileMode = 0700
+	const wantFilePermissions os.FileMode = 0600
+
+	locationParis, _ := time.LoadLocation("Europe/Paris")
+	now := time.Date(2020, time.February, 14, 1, 2, 3, 4, locationParis)
+
+	// Create the logging directory owned by the current user and with the default permissions.
+	os.Mkdir(wantLogDirBaseName, os.ModePerm)
+
+	// Create the given day's log file, both owned by the current user and with the default
+	// permissions.
+	f, fe := os.Create(logFilePathName)
+	if fe != nil {
+		t.Error(fe)
+		return
+	}
+	f.Close()
+
+	// Test.  Under all systems the New call should open the existing log file.  Under a POSIX
+	// system it should change the owner and permissions to the given settings.
+	New(now, logDirPathName, leader, trailer, owner, group, wantDirPermissions, wantFilePermissions)
+
+	// Check.
+
+	// Check that the test directory contains one file, a directory with the given name.
+	filesInTestDirectory, tde := os.ReadDir(testDirectoryName)
+	if tde != nil {
+		t.Errorf("error scanning directory %s - %v", testDirectoryName, tde)
+		return
+	}
+
+	if len(filesInTestDirectory) != 1 {
+		t.Errorf("want 1 file got %d", len(filesInTestDirectory))
+		return
+	}
+
+	// Check that the file is a directory
+	dirInfo := filesInTestDirectory[0]
+	if !dirInfo.IsDir() {
+		t.Error("want a directory")
+		return
+	}
+
+	// Check the log directory name
+	if dirInfo.Name() != wantLogDirBaseName {
+		t.Errorf("want directory %s got %s", wantLogDirBaseName, dirInfo.Name())
+		return
+	}
+
+	// Scan the log directory.
+	files, fe := os.ReadDir(logDirPathName)
+	if fe != nil {
+		t.Errorf("error scanning directory %s - %v", testDirectoryName, fe)
+		return
+	}
+
+	// Check that one log file exists.
+	if len(files) != 1 {
+		t.Errorf("directory %s contains %d files.  Should contain exactly one.", testDirectoryName, len(files))
+		return
+	}
+
+	if files[0].Name() != wantLogFileName {
+		t.Errorf("directory %s contains file \"%s\", want \"%s\".", testDirectoryName, files[0].Name(), wantLogFileName)
+		return
+	}
+
+	if ps.OSName != "windows" {
+
+		// Under a POSIX system, the owner and permissions should be reset.  The test must be run
+		// by root to do all that, so fail if the runner is not root.
+		if syscall.Getuid() != 0 {
+			t.Error("must be root to run this test")
+			return
+		}
+
+		// Check the owner, permissions etc of the files.
+
+		wantUserID, uide := getUserIDFromName(owner)
+		if uide != nil {
+			t.Error(uide)
+			return
+		}
+
+		wantGroupID, gide := getGroupIDFromName(group)
+		if gide != nil {
+			t.Error(gide)
+			return
+		}
+
+		// The log directory.
+		d, de := os.Open(logDirPathName)
+		if de != nil {
+			t.Error(de)
+			return
+		}
+		dStat, dStatErr := ps.Stat(d)
+		if dStatErr != nil {
+			t.Error(dStatErr)
+		}
+
+		// Chec the user that owns the directory.
+		if int(dStat.Uid) != wantUserID {
+			t.Errorf("want %d got %d", wantUserID, dStat.Uid)
+			return
+		}
+
+		// Check the group that the directory is in.
+		if int(dStat.Gid) != wantGroupID {
+			t.Errorf("want %d got %d", wantGroupID, dStat.Gid)
+			return
+		}
+
+		// Check the directory permissions.
+		dirPermissions := os.FileMode(dStat.Mode) & os.ModePerm
+		if dirPermissions != wantDirPermissions {
+			t.Errorf("want 0%o got 0%o", wantFilePermissions, dirPermissions)
+			return
+		}
+
+		// Get the details of the log file.
+		inputFile, oe := os.Open(logFilePathName)
+		if oe != nil {
+			t.Error(oe)
+			return
+		}
+		defer inputFile.Close()
+
 		fStat, fStatErr := ps.Stat(inputFile)
 		if fStatErr != nil {
 			t.Error(fStatErr)

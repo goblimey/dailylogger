@@ -285,11 +285,19 @@ func createlogDirectory(directory, owner, group string, permissions os.FileMode)
 	}
 
 	// Note - under Windows, Mkdirall creates the directory but ignores the permissions.
-	err := os.MkdirAll(directory, permissions)
-	if err != nil {
+	mError := os.MkdirAll(directory, permissions)
+	if mError != nil {
 		// We don't have a log file so we can only write the error to stdout.
 		log.Printf("%s: cannot create log directory %s - %v",
-			"createlogDirectory", directory, err.Error())
+			"createlogDirectory", directory, mError.Error())
+	}
+
+	// If the directory already exists, mkdir does nothing.  In particular it doesn't set
+	// thepermissions, so set them again.
+	cError := os.Chmod(directory, permissions)
+	if cError != nil {
+		log.Printf("%s: cannot set permission on log directory %s - %v",
+			"createlogDirectory", directory, mError.Error())
 	}
 
 	if len(owner) > 0 && len(group) > 0 {
